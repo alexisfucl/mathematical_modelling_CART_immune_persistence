@@ -1,5 +1,5 @@
-function fig3_beam_reproduce()
-%FIG3_BEAM_REPRODUCE Reproduce Figure 3 of the BEAM paper (a–d).
+function main_plot_figure3()
+% Reproduce Figure 3 of the BEAM paper (a–d).
 %
 % Implements the BEAM reaction network and the reaction-based hybrid method
 % described in Supplementary Information, Section A. Each reaction is
