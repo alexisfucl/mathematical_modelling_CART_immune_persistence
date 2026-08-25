@@ -13,14 +13,13 @@ function figure_total_blast_vs_lambda_per_parameter()
 %   - For N only: lambda = N/N0 for integer N (within range)
 
 clearvars; 
-% close all; 
 clc;
 
 %% ---------------------- settings ----------------------
 Tend = 90;
 lamMin = 1e-2;
 lamMax = 1e1;
-nPts   = 31;                          % sampling for non-N parameters
+nPts   = 31;                          
 lamVec = logspace(log10(lamMin), log10(lamMax), nPts);
 
 odeOpts = odeset('RelTol',1e-7,'AbsTol',1e-10);
@@ -32,20 +31,19 @@ N0  = P0.N;
 
 E0_total0 = sum(IC0.E0);
 
-%% ---------------------- lambda values for N (integer constraint) ----------------------
+%% ---------------------- lambda values for N ----------------------
 Nmin = max(2, ceil(lamMin * N0));
 Nmax = max(Nmin, floor(lamMax * N0));
 Nvals  = Nmin:Nmax;
 lamVecN = Nvals / N0;
 
-%% ---------------------- colors (match your figure intent) ----------------------
-col_k1   = [0 0 0];          % black
-col_init = [0.1 0.5 0.1];    % green-ish
-col_long = [0 0.2 0.9];      % blue-ish
-col_B0   = [0.9 0 0];        % red-ish
+%% ---------------------- colors ----------------------
+col_k1   = [0 0 0];          
+col_init = [0.1 0.5 0.1];    
+col_long = [0 0.2 0.9];      
+col_B0   = [0.9 0 0];        
 
 %% ---------------------- compute curves ----------------------
-% Helper anonymous for AUC
 AUC = @(P,IC) blast_auc(P, IC, Tend, odeOpts);
 
 totalJobs = numel(lamVec)*9 + numel(lamVecN);
@@ -68,7 +66,7 @@ for j = 1:numel(lamVec)
     end
 end
 
-% INITIAL RESPONSE: gamma (green)
+% INITIAL RESPONSE: gamma
 Y_gamma = zeros(size(lamVec));
 for j = 1:numel(lamVec)
     lam = lamVec(j);
@@ -80,7 +78,7 @@ for j = 1:numel(lamVec)
     end
 end
 
-% Switching threshold: Bhalf (I suggest grouping with initial response, but your choice)
+% Switching threshold: Bhalf
 Y_Bhalf = zeros(size(lamVec));
 for j = 1:numel(lamVec)
     lam = lamVec(j);
@@ -92,7 +90,7 @@ for j = 1:numel(lamVec)
     end
 end
 
-% INITIAL RESPONSE: k2 (green)
+% INITIAL RESPONSE: k2 
 Y_k2 = zeros(size(lamVec));
 for j = 1:numel(lamVec)
     lam = lamVec(j);
@@ -104,7 +102,7 @@ for j = 1:numel(lamVec)
     end
 end
 
-% INITIAL RESPONSE: k4 (green)
+% INITIAL RESPONSE: k4 
 Y_k4 = zeros(size(lamVec));
 for j = 1:numel(lamVec)
     lam = lamVec(j);
@@ -116,36 +114,18 @@ for j = 1:numel(lamVec)
     end
 end
 
-% % INITIAL RESPONSE: E0 (green) -> scale total initial effector pool only
-% Y_E0 = zeros(size(lamVec));
-% for j = 1:numel(lamVec)
-%     lam = lamVec(j);
-%     P = P0;
-%     IC = IC0;
-%     E0_total = E0_total0 * lam;
-%     IC.E0 = (E0_total / P.N) * ones(P.N,1);
-%     Y_E0(j) = AUC(P,IC);
-%     if mod(done,10)==0 || done==totalJobs
-%         progressPrint(done);
-%     end
-% end
-
-% INITIAL RESPONSE: CAR0 (green) -> scale total CAR T cells, keep partition fixed
+% INITIAL RESPONSE: CAR0 (green)
 Y_CAR0 = zeros(size(lamVec));
-CAR0_base = (IC0.M0 / 0.468);  % recover baseline CAR0 from IC (consistent with your IC builder)
+CAR0_base = (IC0.M0 / 0.468);  
 
 for j = 1:numel(lamVec)
     lam = lamVec(j);
-
     P  = P0;
     IC = IC0;
-
     CAR0 = CAR0_base * lam;
-
-    % keep partition fixed (same as your default_initial_conditions)
+    % keep partition fixed
     IC.M0 = 0.468 * CAR0;
     IC.E0 = (0.532 * CAR0 / P.N) * ones(P.N,1);
-
     Y_CAR0(j) = AUC(P, IC);
 end
 
@@ -154,23 +134,19 @@ Y_N = zeros(size(lamVecN));
 for j = 1:numel(lamVecN)
     P = P0;
     P.N = Nvals(j);
-
-    IC = default_initial_conditions(P);  % correct vector sizes
-    % Keep same baseline totals for B0, A0, M0
+    IC = default_initial_conditions(P); 
     IC.B0 = IC0.B0;
     IC.A0 = IC0.A0;
     IC.M0 = IC0.M0;
-
     % Keep total effector pool constant, just redistributed across N bins
     IC.E0 = (E0_total0 / P.N) * ones(P.N,1);
-
     Y_N(j) = AUC(P,IC);
     if mod(done,10)==0 || done==totalJobs
         progressPrint(done);
     end
 end
 
-% LONG TERM: delta (blue)
+% LONG TERM: delta 
 Y_delta = zeros(size(lamVec));
 for j = 1:numel(lamVec)
     lam = lamVec(j);
@@ -182,7 +158,7 @@ for j = 1:numel(lamVec)
     end
 end
 
-% LONG TERM: eps (blue)
+% LONG TERM: eps 
 Y_eps = zeros(size(lamVec));
 for j = 1:numel(lamVec)
     lam = lamVec(j);
@@ -194,7 +170,7 @@ for j = 1:numel(lamVec)
     end
 end
 
-% LONG TERM: k3 (blue)
+% LONG TERM: k3 
 Y_k3 = zeros(size(lamVec));
 for j = 1:numel(lamVec)
     lam = lamVec(j);
@@ -206,7 +182,7 @@ for j = 1:numel(lamVec)
     end
 end
 
-% B0 (red)
+% B0 
 Y_B0 = zeros(size(lamVec));
 for j = 1:numel(lamVec)
     lam = lamVec(j);
@@ -227,7 +203,6 @@ Y_k1    = max(Y_k1,    1e-12);
 Y_gamma = max(Y_gamma, 1e-12);
 Y_k2    = max(Y_k2,    1e-12);
 Y_k4    = max(Y_k4,    1e-12);
-% Y_E0    = max(Y_E0,    1e-12);
 Y_CAR0 = max(Y_CAR0, 1e-12);
 Y_N     = max(Y_N,     1e-12);
 Y_Bhalf = max(Y_Bhalf, 1e-12);
@@ -242,7 +217,6 @@ loglog(ax, lamVec, Y_k1, '-o', 'LineWidth', 2, 'Color', col_k1, 'MarkerSize', 5)
 loglog(ax, lamVec,  Y_gamma, '-o', 'LineWidth', 2, 'Color', col_init, 'MarkerSize', 5);
 loglog(ax, lamVec,  Y_k2,    '--', 'LineWidth', 2, 'Color', col_init, 'MarkerSize', 5);
 loglog(ax, lamVec,  Y_k4,    '-x', 'LineWidth', 2, 'Color', col_init, 'MarkerSize', 5);
-% loglog(ax, lamVec,  Y_E0,    '-.', 'LineWidth', 2, 'Color', col_init, 'MarkerSize', 5);
 loglog(ax, lamVec, Y_CAR0, '-.', 'LineWidth', 2, 'Color', col_init, 'MarkerSize', 5);
 loglog(ax, lamVecN, Y_N,     ':', 'LineWidth', 2, 'Color', col_init, 'MarkerSize', 5);
 
@@ -262,58 +236,35 @@ ylabel(ax, '$\int_0^T B(t)\,dt$', 'Interpreter','latex', 'FontSize',22);
 title(ax, 'Total blast cells up to 3 months', 'Interpreter','latex', 'FontSize',25);
 xlim(ax, [lamMin lamMax]);
 
-% Legend: one entry per parameter curve
-
-
-% lg = legend(ax, ...
-%     {'k_1', ...
-%      '\gamma', 'k_2', 'k_4', 'E_0 (total)', 'N (integer)', 'B_{1/2}', ...
-%      '\delta', '\epsilon', 'k_3', ...
-%      'B_0'}, ...
-%     'Location','southeast');
-% lg = legend(ax, ...
-%     {'k_1', ...
-%      '\gamma', 'k_2', 'k_4', 'CAR_0 (dose)', 'N (integer)', 'B_{1/2}', ...
-%      '\delta', '\epsilon', 'k_3', ...
-%      'B_0'}, ...
-%     'Location','southeast');
-% set(lg, 'Box','on', 'LineWidth', 2);
 set(gca,'XScale','log','YScale','log');
 set(ax,'XScale','log','YScale','log');
 
 %% ---------------------- 3-Column Custom Legend (Ultra-Tight) ----------------------
-% Create a wide, short legend box at the bottom
-% Position: [left, bottom, width, height]
-% lg_ax = axes('Position', [0.12, 0.11, 0.80, 0.18], 'Units', 'normalized');
 lg_ax = axes('Position', [0.43, 0.12, 0.46, 0.25], 'Units', 'normalized'); 
 hold(lg_ax, 'on');
 set(lg_ax, 'XTick', [], 'YTick', [], 'Box', 'on', 'LineWidth', 1.2, 'Color', 'w');
 
-% Layout Settings - TIGHTENED
-% We reduce the gap between columns and the gap between text and lines
-col_x = [0.01, 0.33, 0.70]; % Starting X for the 3 columns (closer together)
-line_off = 0.1;            % MUCH TIGHTER: Distance from text start to line start
-line_len = 0.08;            % Standard line swatch length
+% Layout Settings
+col_x = [0.01, 0.33, 0.70]; 
+line_off = 0.1;            
+line_len = 0.08;            
 y_top = 0.88;
-y_step = 0.155;              % Vertical spacing
+y_step = 0.155;             
 
-% Helper to draw a header
+
 draw_h = @(txt, col, xp, yp) text(xp, yp, txt, 'Color', col, ... ...
     'FontWeight', 'bold', 'FontSize', 12, 'Interpreter', 'latex', 'Parent', lg_ax);
 
-% Helper to draw a parameter row
+
     function draw_p(txt, col, style, mark, xp, yp)
-        % 1. Place text
         text(xp + 0.01, yp, txt, 'Color', 'k', 'Interpreter', 'latex', ...
              'FontSize', 15, 'Parent', lg_ax);
-        
-        % 2. Define 3 points for the line [start, middle, end]
         lx = [xp + line_off, xp + line_off + line_len/2, xp + line_off + line_len];
         ly = [yp, yp, yp];
         
-        % 3. Plot line with centered marker
+
         plot(lg_ax, lx, ly, 'Color', col, 'LineStyle', style, 'LineWidth', 2, ...
-            'Marker', mark, 'MarkerIndices', 2, ... % Forces marker only on the middle point
+            'Marker', mark, 'MarkerIndices', 2, ... 
             'MarkerSize', 5);
     end
 % --- COLUMN 1: Initial Response ---
@@ -345,19 +296,14 @@ draw_p('$B_0$', col_B0, '-', 'o', col_x(3), curr_y);
 ylim(lg_ax, [0, 1]); xlim(lg_ax, [0, 1]);
 end
 
-%% =====================================================================
-%% Metric: AUC = int_0^T B(t) dt
-%% =====================================================================
+
 function auc = blast_auc(P, IC, Tend, odeOpts)
 [t, y] = simulate_beam_ode(P, IC, Tend, odeOpts);
 B = y(:,1);
 auc = trapz(t, B);
 end
 
-%% =====================================================================
-%% Deterministic ODE simulation
-%% State: [B; E1..EN; A; M]
-%% =====================================================================
+
 function [t, y] = simulate_beam_ode(P, IC, Tend, odeOpts)
 N = P.N;
 y0 = [IC.B0; IC.E0(:); IC.A0; IC.M0];
@@ -375,37 +321,25 @@ M = y(3+N);
 
 Etot = sum(E);
 
-% tumour dynamics
-dB = P.k1*B*(1 - B/P.K) - P.k2*B*Etot;
 
-% switching fraction
+dB = P.k1*B*(1 - B/P.K) - P.k2*B*Etot;
 frac = 0;
 if (P.Bhalf + B) > 0
     frac = B/(P.Bhalf + B);
 end
-
-% effector chain dynamics (robust for N=1,2,...)
 dE = zeros(N,1);
-
 if N == 1
-    % Single compartment: production into E1 and death out of E1
     dE(1) = 2*P.k4*A*frac - P.delta*E(1);
-
 elseif N == 2
-    % Two compartments:
     dE(1) = 2*P.k4*A*frac - P.gamma*E(1);
     dE(2) = 2*P.gamma*E(1) - P.delta*E(2);
-
 else
-    % N >= 3 (your original model)
     dE(1) = 2*P.k4*A*frac - P.gamma*E(1);
     for i = 2:N-1
         dE(i) = P.gamma*(2*E(i-1) - E(i));
     end
     dE(N) = 2*P.gamma*E(N-1) - P.delta*E(N);
 end
-
-% activated + memory
 dA = P.k3*M*B - P.k4*A*(1-frac) - P.k4*A*frac;
 dM = -P.k3*M*B + 2*P.k4*A*(1-frac) - P.eps*M;
 
