@@ -1,9 +1,9 @@
-function fig3_beam_reproduce()
-%FIG3_BEAM_REPRODUCE Reproduce Figure 3 of the BEAM paper
+function fig4_beam()
+% Reproduces Figure 4 of the BEAM paper
 % Implements the mathematically exact Integral Method for the PDMP hybrid
-% model. Continuous populations dictate time-varying discrete propensities.
+% model. 
 
-rng(10,'twister');
+rng(9,'twister');
 
 % =========================
 % Parameters (Table 1 baseline)
@@ -12,13 +12,12 @@ P = default_params_table1();
 
 Tend    = 1000;     
 dt      = 0.1;      
-Lambda  = 1e2;     
+Lambda  = 1e3;     
 MRD     = 1e6;     
 ymin    = 1e0;
 ymax    = 1e12;
 
-% k1_vals   = [0.06, 0.10, 0.16]; % values for k2 = 2.9
-k1_vals   = [0.04, 0.10, 0.157];
+k1_vals   = [0.06, 0.1, 0.16];
 
 % =========================
 % Simulate panels (a,b,c)
@@ -37,8 +36,6 @@ end
 fig = figure('Color','w','Position',[1500 1500 200 200]);
 t = tiledlayout(1,3); 
 
-% This forces the tiles to fill the entire rectangular area 
-% defined by the figure size.
 t.TileSpacing = 'compact'; 
 t.Padding = 'tight';
 position=1;
@@ -68,16 +65,10 @@ lines = findall(fig, 'Type', 'Line'); set(lines, 'LineWidth', 2);
 text(ax1, -0.16, 1.05, '(a)', 'Units','normalized','FontSize',14);
 text(ax2, -0.16, 1.05, '(b)', 'Units','normalized','FontSize',14);
 text(ax3, -0.16, 1.05, '(c)', 'Units','normalized','FontSize',14);
-% 1. Set the figure to be wide (e.g., 10 inches wide, 4 inches tall)
+
 set(gcf, 'Units', 'inches');
-set(gcf, 'Position', [1, 1, 20, 4]); % [left, bottom, width, height]
-
-% 2. Ensure the axes expand to fill that new rectangular shape
-% If using subplot:
+set(gcf, 'Position', [1, 1, 20, 4]); 
 set(findall(gcf,'type','axes'), 'PlotBoxAspectRatioMode', 'auto');
-
-% 3. The magic command for LaTeX users
-% This crops the PDF to the actual bounding box of the content
 exportgraphics(gcf, 'Figure4.pdf', 'ContentType', 'vector', 'BackgroundColor', 'none');
 end
 
@@ -85,8 +76,8 @@ end
 % Defaults
 % =====================================================================
 function P = default_params_table1()
-P.k1     = 0.2;
-P.k2     = 2.6e-10;     
+P.k1     = 0.2;     
+P.k2     = 2.9e-10; 
 P.k3     = 1e-9;
 P.k4     = 0.1;
 P.gamma  = 0.3;
@@ -98,219 +89,398 @@ P.Bhalf  = 1e9;
 
 P.CAR0   = 4.1e8;
 P.M0     = .468 * P.CAR0;
-P.A0     = 2000; % Start at threshold to bypass massive initial flux                    
+P.A0     = 0;                  
 P.E0each = (.532 * P.CAR0)/P.N; 
 P.B0     = 2e11;
 end
 
 % =====================================================================
-% Hybrid simulation main loop
+% Reaction-based hybrid simulation (Supplementary Information, Section A)
+% State ordering: x = [B; E1; ...; EN; A; M]
 % =====================================================================
 function out = simulate_beam_exact_pdmp(P, Tend, dt, Lambda)
 
-N  = P.N;
+N = P.N;
 tgrid = (0:dt:Tend).';
 ng = numel(tgrid);
 
-Blog = zeros(ng,1); Elog = zeros(ng,1); Mlog = zeros(ng,1); Tlog = zeros(ng,1);
+idxB = 1;
+idxE = 2:(N+1);
+idxA = N + 2;
+idxM = N + 3;
+nState = N + 3;
 
-B = P.B0; E = ones(N,1)*P.E0each; A = P.A0; M = P.M0;
+% Stoichiometric matrix for the N+7 reactions in Supplementary Table 1.
+S = beam_stoichiometry(P);
 
-k = 1;
-Blog(k) = B; Elog(k) = sum(E); Mlog(k) = M + A; Tlog(k) = sum(E) + M + A;
+% Initial state.
+x = zeros(nState,1);
+x(idxB) = P.B0;
+x(idxE) = P.E0each;
+x(idxA) = P.A0;
+x(idxM) = P.M0;
 
-t = 0;
+% Track whether each species was fully stochastic at the previous
+% classification point. This is used only for the continuous-to-discrete
+% hand-off, so that a newly fully stochastic species is integerised once.
+wasFullyStochastic = false(nState,1);
+
+% Output logs.
+Blog = zeros(ng,1);
+Elog = zeros(ng,1);
+Mlog = zeros(ng,1);
+Tlog = zeros(ng,1);
+
+Blog(1) = x(idxB);
+Elog(1) = sum(x(idxE));
+Mlog(1) = x(idxM) + x(idxA);
+Tlog(1) = sum(x(idxE)) + x(idxA) + x(idxM);
+
+% Deterministic reactions are integrated with ode45, as described in the
+% Supplementary Information.
+odeOpts = odeset('RelTol',1e-7,'AbsTol',1e-10, ...
+                  'NonNegative',1:nState);
+
 for k = 2:ng
-    tNext = tgrid(k);
-    h = tNext - t; 
+    t0 = tgrid(k-1);
+    t1 = tgrid(k);
 
-    if B >= Lambda && A >= Lambda && M >= Lambda && all(E >= Lambda)
-        % Deterministic step
-        y0 = [B; E; A; M];
-        opts = odeset('RelTol',1e-7,'AbsTol',1e-10);
-        [~,yy] = ode15s(@(tt,yy) beam_ode_full(tt,yy,P), [t tNext], y0, opts);
-        yend = yy(end,:).';
-        B = max(yend(1),0); E = max(yend(2:1+N),0); A = max(yend(2+N),0); M = max(yend(3+N),0);
-    else
-        % Exact PDMP Step
-        [B,E,A,M] = hybrid_step_exact_pdmp(P, B, E, A, M, h, Lambda);
-    end
+    [x,wasFullyStochastic] = hybrid_reaction_interval( ...
+        P, x, t0, t1, dt, Lambda, S, odeOpts, wasFullyStochastic);
 
-    t = tNext;
-    % disp(t)
-    Blog(k) = B; Elog(k) = sum(E); Mlog(k) = M + A; Tlog(k) = sum(E) + M + A;
+    x = max(x,0);
 
-    if B <= 0, B = 0; end
+    Blog(k) = x(idxB);
+    Elog(k) = sum(x(idxE));
+    Mlog(k) = x(idxM) + x(idxA);
+    Tlog(k) = sum(x(idxE)) + x(idxA) + x(idxM);
 end
 
-out.t = tgrid; out.B = Blog; out.E = Elog; out.M = Mlog; out.T = Tlog;      
-out.eliminated = any(Blog <= 0.5); 
+out.t = tgrid;
+out.B = Blog;
+out.E = Elog;
+out.M = Mlog;
+out.T = Tlog;
+out.eliminated = any(Blog == 0);
 end
+
 
 % =====================================================================
-% EXACT PDMP Hybrid Step (Integral Method)
+% Advance one macro-step of the reaction-based hybrid algorithm
 % =====================================================================
-function [B,E,A,M] = hybrid_step_exact_pdmp(P, B, E, A, M, h, Lambda)
+function [x,wasFullyStochastic] = hybrid_reaction_interval( ...
+    P, x, tStart, tEnd, dtClass, Lambda, S, odeOpts, wasFullyStochastic)
 
-N = P.N;
-tloc = 0;
+nState = numel(x);
+t = tStart;
+timeTol = 100*eps(max(1,abs(tEnd)));
 
-% Determine which states are discrete for this window and round them
-is_B_disc = (B < Lambda); if is_B_disc, B = round(B); end
-is_A_disc = (A < Lambda); if is_A_disc, A = round(A); end
-is_M_disc = (M < Lambda); if is_M_disc, M = round(M); end
-is_E_disc = (E < Lambda);  
-for i=1:N
-    if is_E_disc(i), E(i) = round(E(i)); end
-end
+while t < tEnd - timeTol
 
-% Reaction Flags (1 = Continuous, 0 = Discrete)
-f_flags = zeros(6+N, 1);
-f_flags(1) = ~is_B_disc;                        
-f_flags(2) = ~is_B_disc;                        
-f_flags(3) = ~(is_M_disc || is_A_disc);         
-f_flags(4) = ~(is_A_disc || is_M_disc);         
-f_flags(5) = ~(is_A_disc || is_E_disc(1));      
-f_flags(6) = ~is_M_disc;                        
-for i=1:N-1
-    f_flags(6+i) = ~(is_E_disc(i) | is_E_disc(i+1)); 
-end
-f_flags(6+N) = ~is_E_disc(N);                   
+    % -------------------------------------------------------------
+    % 1. Classify every reaction independently.
+    % A reaction is deterministic only when BOTH
+    %   (i)  1/alpha_j < dtClass, and
+    %   (ii) all of its reactant populations exceed Lambda.
+    % -------------------------------------------------------------
+    alpha = beam_propensities(x,P);
+    detMask = classify_reactions(x,alpha,P,dtClass,Lambda);
+    stochMask = ~detMask;
 
-while tloc < h
-    % 1. Draw the exact integral threshold R = -log(u)
-    R = -log(rand);
-    
-    % 2. Setup ODE with event locator
-    % State vector: y = [B; E(1..N); A; M; I] where I is the accumulated propensity integral
-    y0 = [B; E; A; M; 0];
-    opts = odeset('RelTol',1e-7,'AbsTol',1e-10, 'Events', @(t,y) pdmp_event(t,y,R,P,f_flags));
-    
-    % 3. Integrate until event fires (I == R) or we reach end of step (h - tloc)
-    [tt, yy, te, ye, ie] = ode15s(@(t,y) pdmp_ode_exact(t,y,P,f_flags), [0, h - tloc], y0, opts);
-    
-    % Update populations to the end of the integration period
-    yend = yy(end,:).';
-    B = max(yend(1),0); E = max(yend(2:1+N),0); A = max(yend(2+N),0); M = max(yend(3+N),0);
-    
-    if ~isempty(te)
-        % 4. A discrete event fired! Update local time.
-        tloc = tloc + te(1);
-        
-        % 5. Compute instantaneous conditional probabilities P[j = i | T = t+tau]
-        props = get_discrete_propensities([B; E; A; M], P, f_flags);
-        a0 = sum(props);
-        
-        if a0 > 0
-            u = rand * a0;
-            cumsum_props = cumsum(props);
-            idx = find(cumsum_props > u, 1);
-            
-            % 6. Apply exact integer stoichiometry
-            switch idx
-                case 1, B = B + 1;
-                case 2, B = max(B - 1, 0);
-                case 3, M = max(M - 1, 0); A = A + 1;
-                case 4, A = max(A - 1, 0); M = M + 2;
-                case 5, A = max(A - 1, 0); E(1) = E(1) + 2;
-                case 6, M = max(M - 1, 0);
-                case 6 + N, E(N) = max(E(N) - 1, 0);
-                otherwise 
-                    i = idx - 6; 
-                    E(i) = max(E(i) - 1, 0); E(i+1) = E(i+1) + 2;
-            end
+    % -------------------------------------------------------------
+    % Continuous-to-discrete hand-off.
+    % -------------------------------------------------------------
+    fullyStochastic = ~any(abs(S(:,detMask)) > 0,2);
+    newlyFullyStochastic = fullyStochastic & ~wasFullyStochastic;
+
+    if any(newlyFullyStochastic)
+        ids = find(newlyFullyStochastic);
+        for q = 1:numel(ids)
+            x(ids(q)) = stochastic_round_nonnegative(x(ids(q)));
         end
-    else
-        % Reached the end of the time step without any discrete events firing
-        tloc = h;
+
+        % Rounding can very slightly change a propensity, so reclassify.
+        alpha = beam_propensities(x,P);
+        detMask = classify_reactions(x,alpha,P,dtClass,Lambda);
+        stochMask = ~detMask;
+        fullyStochastic = ~any(abs(S(:,detMask)) > 0,2);
+    end
+    wasFullyStochastic = fullyStochastic;
+
+    % -------------------------------------------------------------
+    % 2. If every reaction is deterministic, integrate directly to
+    %    the end of the current macro-step.
+    % -------------------------------------------------------------
+    if ~any(stochMask)
+        [~,xx] = ode45(@(tt,xx) deterministic_rhs(tt,xx,P,S,detMask), ...
+                       [t tEnd], x, odeOpts);
+        x = xx(end,:).';
+        t = tEnd;
+        continue;
+    end
+
+    % -------------------------------------------------------------
+    % 3. Draw the exponential threshold for the next stochastic event.
+    % -------------------------------------------------------------
+    u = rand;
+    hazardTarget = -log(max(1-u,realmin));
+
+    % Append the accumulated stochastic hazard H to the state.
+    z0 = [x; 0];
+    eventOpts = odeset(odeOpts,'Events', ...
+        @(tt,zz) hazard_event(tt,zz,hazardTarget));
+
+    % The reaction partition is held fixed until either a stochastic event
+    % occurs or the current macro-step ends, exactly as described in the
+    % Supplementary Information.
+    [~,zz,te,ze] = ode45( ...
+        @(tt,zz) augmented_hybrid_rhs(tt,zz,P,S,detMask,stochMask,nState), ...
+        [t tEnd], z0, eventOpts);
+
+    if isempty(te)
+        % The integrated stochastic hazard did not reach the threshold.
+        x = zz(end,1:nState).';
+        t = tEnd;
+        continue;
+    end
+
+    % -------------------------------------------------------------
+    % 4. A stochastic reaction fires at t = te(end).
+    %    Re-evaluate propensities at the event state and choose reaction j
+    %    with probability alpha_j/sum(alpha_i) over the stochastic set.
+    % -------------------------------------------------------------
+    xEvent = ze(end,1:nState).';
+    alphaEvent = beam_propensities(xEvent,P);
+    rates = feasible_stochastic_rates(xEvent,alphaEvent,S,stochMask);
+    totalRate = sum(rates);
+
+    if totalRate <= 0
+        % Numerical safeguard: if the stochastic rate has vanished exactly
+        % at the located event, restart from that state and reclassify.
+        x = xEvent;
+        t = te(end);
+        continue;
+    end
+
+    r = rand * totalRate;
+    j = find(cumsum(rates) >= r,1,'first');
+
+    % Apply the exact stoichiometric jump.
+    x = xEvent + S(:,j);
+
+    % Guard only against tiny numerical undershoots in mixed continuous /
+    % stochastic species. Fully discrete species remain integer-valued.
+    x(x < 0 & x > -1e-9) = 0;
+    if any(x < -1e-9)
+        error('Hybrid update produced a negative population after reaction %d.',j);
+    end
+
+    t = te(end);
+    % Loop back immediately: all reactions are reclassified after the jump.
+end
+end
+
+
+% =====================================================================
+% Deterministic contribution from the currently deterministic reactions
+% =====================================================================
+function dx = deterministic_rhs(~,x,P,S,detMask)
+alpha = beam_propensities(x,P);
+if any(detMask)
+    dx = S(:,detMask) * alpha(detMask);
+else
+    dx = zeros(size(x));
+end
+end
+
+
+% =====================================================================
+% Deterministic state plus accumulated stochastic hazard
+% =====================================================================
+function dz = augmented_hybrid_rhs(~,z,P,S,detMask,stochMask,nState)
+x = z(1:nState);
+alpha = beam_propensities(x,P);
+
+if any(detMask)
+    dx = S(:,detMask) * alpha(detMask);
+else
+    dx = zeros(nState,1);
+end
+
+rates = feasible_stochastic_rates(x,alpha,S,stochMask);
+dH = sum(rates);
+dz = [dx; dH];
+end
+
+
+% =====================================================================
+% Positivity safeguard for stochastic reactions in mixed species
+% =====================================================================
+function rates = feasible_stochastic_rates(x,alpha,S,stochMask)
+rates = alpha;
+rates(~stochMask) = 0;
+
+for j = find(stochMask).'
+    required = max(-S(:,j),0);
+    if any(x + 1e-12 < required)
+        rates(j) = 0;
     end
 end
 end
 
+
 % =====================================================================
-% ODE: Exact Subsystem with Propensity Integral
+% Event condition: stop when the integrated stochastic hazard reaches R
 % =====================================================================
-function dydt = pdmp_ode_exact(~, y, P, f_flags)
+function [value,isterminal,direction] = hazard_event(~,z,hazardTarget)
+value = z(end) - hazardTarget;
+isterminal = 1;
+direction = 1;
+end
+
+
+% =====================================================================
+% Reaction propensities from Supplementary Table 1
+% =====================================================================
+function alpha = beam_propensities(x,P)
 N = P.N;
-B = y(1); E = y(2:1+N); A = y(2+N); M = y(3+N);
+x = max(x,0);
 
-Etot = sum(E); frac = B/(P.Bhalf + B);
+B = x(1);
+E = x(2:N+1);
+A = x(N+2);
+M = x(N+3);
+Etot = sum(E);
 
-% Continuous population changes (flags = 1)
-dB = f_flags(1) * P.k1*B*(1 - B/P.K) - f_flags(2) * P.k2*B*Etot;
-
-dE = zeros(N,1);
-dE(1) = f_flags(5) * 2*P.k4*A*frac - f_flags(7) * P.gamma*E(1);
-for i = 2:N-1
-    dE(i) = f_flags(6+i-1) * 2*P.gamma*E(i-1) - f_flags(6+i) * P.gamma*E(i);
-end
-dE(N) = f_flags(6+N-1) * 2*P.gamma*E(N-1) - f_flags(6+N) * P.delta*E(N);
-
-dA = f_flags(3) * P.k3*M*B - f_flags(4) * P.k4*A*(1-frac) - f_flags(5) * P.k4*A*frac;
-dM = -f_flags(3) * P.k3*M*B + f_flags(4) * 2*P.k4*A*(1-frac) - f_flags(6) * P.eps*M;
-
-% The Integral of discrete propensities (flags = 0)
-props = get_discrete_propensities([B; E; A; M], P, f_flags);
-dI = sum(props);
-
-dydt = [dB; dE; dA; dM; dI];
+if P.Bhalf + B > 0
+    fracEff = B/(P.Bhalf + B);
+    fracMem = P.Bhalf/(P.Bhalf + B);
+else
+    fracEff = 0;
+    fracMem = 1;
 end
 
-% =====================================================================
-% Event function to halt ODE exactly when Integral == R
-% =====================================================================
-function [value, isterminal, direction] = pdmp_event(~, y, R, ~, ~)
-I = y(end);
-value = I - R;      % Triggers when I crosses R
-isterminal = 1;     % Halt integration
-direction = 1;      % Only trigger when crossing from below
-end
+alpha = zeros(N+7,1);
 
-% =====================================================================
-% Helper: Calculate Propensities for Discrete Reactions
-% =====================================================================
-function props = get_discrete_propensities(y, P, f_flags)
-N = P.N;
-B = y(1); E = y(2:1+N); A = y(2+N); M = y(3+N);
-
-Etot = sum(E); frac = B/(P.Bhalf + B);
-props = zeros(6+N, 1);
-
-if ~f_flags(1), props(1) = max(P.k1 * B * (1 - B/P.K), 0); end
-if ~f_flags(2), props(2) = max(P.k2 * B * Etot, 0); end
-if ~f_flags(3), props(3) = max(P.k3 * M * B, 0); end
-if ~f_flags(4), props(4) = max(P.k4 * A * (1 - frac), 0); end
-if ~f_flags(5), props(5) = max(P.k4 * A * frac, 0); end
-if ~f_flags(6), props(6) = max(P.eps * M, 0); end
+alpha(1) = P.k1 * B;
+alpha(2) = P.k1 * B^2/P.K;
+alpha(3) = P.k2 * B * Etot;
+alpha(4) = P.k3 * M * B;
+alpha(5) = P.k4 * A * fracMem;
+alpha(6) = P.k4 * A * fracEff;
 
 for i = 1:N-1
-    if ~f_flags(6+i)
-        props(6+i) = max(P.gamma * E(i), 0);
-    end
-end
-if ~f_flags(6+N), props(6+N) = max(P.delta * E(N), 0); end
-
+    alpha(6+i) = P.gamma * E(i);
 end
 
+alpha(N+6) = P.delta * E(N);
+alpha(N+7) = P.eps * M;
+
+alpha(~isfinite(alpha) | alpha < 0) = 0;
+end
+
+
 % =====================================================================
-% ODE: Full System (Deterministic fallback)
+% Stoichiometric matrix corresponding to Supplementary Table 1
 % =====================================================================
-function dydt = beam_ode_full(~, y, P)
+function S = beam_stoichiometry(P)
 N = P.N;
-B = y(1); E = y(2:1+N); A = y(2+N); M = y(3+N);
-Etot = sum(E); frac = B/(P.Bhalf + B);
+nState = N + 3;
+nRxn = N + 7;
 
-dB = P.k1*B*(1 - B/P.K) - P.k2*B*Etot;
-dE = zeros(N,1);
-dE(1) = 2*P.k4*A*frac - P.gamma*E(1);
-for i = 2:N-1
-    dE(i) = P.gamma*(2*E(i-1) - E(i));
+S = zeros(nState,nRxn);
+
+idxB = 1;
+idxA = N + 2;
+idxM = N + 3;
+
+% R1: B -> B + 1
+S(idxB,1) = 1;
+
+% R2: B -> B - 1
+S(idxB,2) = -1;
+
+% R3: B -> B - 1
+S(idxB,3) = -1;
+
+% R4: M -> M - 1, A -> A + 1
+S(idxM,4) = -1;
+S(idxA,4) = 1;
+
+% R5: A -> A - 1, M -> M + 2
+S(idxA,5) = -1;
+S(idxM,5) = 2;
+
+% R6: A -> A - 1, E1 -> E1 + 2
+S(idxA,6) = -1;
+S(2,6) = 2;
+
+% R6+i: Ei -> Ei - 1, E(i+1) -> E(i+1) + 2
+for i = 1:N-1
+    j = 6 + i;
+    idxEi = 1 + i;
+    idxEip1 = 2 + i;
+    S(idxEi,j) = -1;
+    S(idxEip1,j) = 2;
 end
-dE(N) = 2*P.gamma*E(N-1) - P.delta*E(N);
-dA = P.k3*M*B - P.k4*A*(1-frac) - P.k4*A*frac;
-dM = -P.k3*M*B + 2*P.k4*A*(1-frac) - P.eps*M;
 
-dydt = [dB; dE; dA; dM];
+% R(N+6): EN -> EN - 1
+S(N+1,N+6) = -1;
+
+% R(N+7): M -> M - 1
+S(idxM,N+7) = -1;
+end
+
+
+% =====================================================================
+% Reaction-by-reaction deterministic/stochastic classification
+% =====================================================================
+function detMask = classify_reactions(x,alpha,P,dtClass,Lambda)
+N = P.N;
+
+B = max(x(1),0);
+E = max(x(2:N+1),0);
+A = max(x(N+2),0);
+M = max(x(N+3),0);
+Etot = sum(E);
+
+% Criterion 1: expected next-event time 1/alpha_j < dtClass.
+fast = false(N+7,1);
+pos = alpha > 0;
+fast(pos) = (1./alpha(pos)) < dtClass;
+
+% Criterion 2: all reactant populations exceed Lambda.
+reactantsLarge = false(N+7,1);
+reactantsLarge(1) = B > Lambda;                    % R1
+reactantsLarge(2) = B > Lambda;                    % R2
+reactantsLarge(3) = B > Lambda && Etot > Lambda;   % R3
+reactantsLarge(4) = B > Lambda && M > Lambda;      % R4
+reactantsLarge(5) = A > Lambda;                    % R5
+reactantsLarge(6) = A > Lambda;                    % R6
+
+for i = 1:N-1
+    reactantsLarge(6+i) = E(i) > Lambda;
+end
+
+reactantsLarge(N+6) = E(N) > Lambda;
+reactantsLarge(N+7) = M > Lambda;
+
+detMask = fast & reactantsLarge;
+end
+
+
+% =====================================================================
+% Unbiased stochastic rounding for a newly fully stochastic species
+% =====================================================================
+function n = stochastic_round_nonnegative(x)
+if x <= 0
+    n = 0;
+    return;
+end
+
+n0 = floor(x);
+p = x - n0;
+n = n0 + (rand < p);
 end
 
 % =====================================================================
