@@ -1,13 +1,8 @@
 
-plot_figure7_from_mat('figure7_oldTN_tauLeapFlux_ACD_20260515_101629.mat', true)
-% fig = plot_figure7_from_mat('yourfile.mat', false);
+plot_figure7_from_mat('figure7_data.mat', true)
 
 function fig = plot_figure7_from_mat(matFile, savePng)
-%PLOT_FIGURE7_FROM_MAT  Recreate Figure 7 (a,c,d) plots from a saved .mat file.
-% Uses a 2-color gradient:
-%   p=0 (escape)      -> Fig5 escape red/pink
-%   p=1 (elimination) -> Fig5 elimination green
-% And applies LaTeX + larger styling everywhere.
+%PLOT_FIGURE7_FROM_MAT  Recreate Figure 7 (a,c,d) plots from saved runs
 
 if nargin < 2, savePng = false; end
 if ~isfile(matFile)
@@ -28,7 +23,6 @@ end
 smoothSigma = 1.2;
 if isfield(S,'smoothSigma'), smoothSigma = S.smoothSigma; end
 
-% --- 2-color gradient using Fig 5 endpoints ---
 cmap_prob = cmap_fig5_escape_to_elim(256);
 
 % ---- Global styling (LaTeX + font sizes) ----
@@ -57,7 +51,7 @@ cb1.FontSize = FS_tick;
 cb1.Ticks = [0 0.5 1];
 hold(ax1,'off');
 
-% -------- (c)
+% -------- (b)
 ax2 = nexttile; hold(ax2,'on');
 cb2 = plot_probmap_with_half_contour(ax2, S.tau_c, S.gamma_grid, S.P_elim_c, smoothSigma, cmap_prob);
 set(ax2,'YScale','log');
@@ -74,7 +68,7 @@ cb2.FontSize = FS_tick;
 cb2.Ticks = [0 0.5 1];
 hold(ax2,'off');
 
-% -------- (d)
+% -------- (c)
 ax3 = nexttile; hold(ax3,'on');
 cb3 = plot_probmap_with_half_contour(ax3, S.tau_d, S.delta_grid, S.P_elim_d, smoothSigma, cmap_prob);
 set(ax3,'YScale','log');
@@ -91,17 +85,7 @@ cb3.FontSize = FS_tick;
 cb3.Ticks = [0 0.5 1];
 hold(ax3,'off');
 
-% Apply default LaTeX text interpreter for any later text calls
 set(fig,'DefaultTextInterpreter','latex');
-
-% Save PNG if requested
-if savePng
-    [p,n,~] = fileparts(matFile);
-    outPng = fullfile(p, [n '_replot.png']);
-    print(fig, outPng, '-dpng', '-r300');
-    fprintf('Saved PNG: %s\n', outPng);
-end
-
 end
 
 %% ========================= helpers =========================
@@ -134,8 +118,8 @@ Ps = conv2(conv2(P, g, 'same'), g', 'same');
 end
 
 function cmap = cmap_fig5_escape_to_elim(n)
-col_elim = [0.70 0.78 0.55];  % elimination green
-col_esc  = [0.88 0.74 0.70];  % escape red/pink
+col_elim = [0.70 0.78 0.55];  
+col_esc  = [0.88 0.74 0.70];  
 t = linspace(0,1,n).';
 cmap = (1-t).*col_esc + t.*col_elim;
 cmap = max(min(cmap,1),0);
