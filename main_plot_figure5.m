@@ -76,11 +76,13 @@ hold off;
 %% PANEL 3: Time Series (PDMP Simulation)
 %% =====================================================================
 nexttile;
-% Simulation Parameters
+% Simulation Parameters: the starred point in (b), everything else at baseline
 P_ts = default_params_table1();
-P_ts.k1 = 0.18; 
-Lambda  = 1e2;
+P_ts.k2    = 2.9e-10;   % as in the maps of panels (a,b)
+P_ts.Bhalf = 1e10;      % the red star in (b)
+Lambda  = 1e3;
 MRD = 1e6; ymin = 1; ymax = 1e12;
+rng(5, 'twister');
 
 % Run the exact simulation code provided
 sim_ts = simulate_beam_exact_pdmp(P_ts, 1000, 0.1, Lambda);
@@ -109,10 +111,10 @@ set(gcf, 'PaperPositionMode', 'auto');
 exportgraphics(gcf, 'Combined_Figure.pdf', 'ContentType', 'vector', 'BackgroundColor', 'none');
 
 function P = default_params_table1()
-    P.k1 = 0.2; P.k2 = 2.9e-10; P.k3 = 1e-9; P.k4 = 0.1;
-    P.gamma = 0.3; P.delta = 0.2; P.eps = 0.014; P.K = 1e12;
-    P.N = 6; P.Bhalf = 1e10; P.CAR0 = 4.1e8; P.M0 = .468 * P.CAR0;
-    P.A0 = 2000; P.E0each = (.532 * P.CAR0)/P.N; P.B0 = 2e11;
+    P.k1 = 0.2; P.k2 = 4e-10; P.k3 = 1e-9; P.k4 = 0.1;
+    P.gamma = 0.3; P.delta = 0.2; P.eps = 0.01; P.K = 1e12;
+    P.N = 6; P.Bhalf = 1e9; P.CAR0 = 4.1e8; P.M0 = .468 * P.CAR0;
+    P.A0 = 0; P.E0each = (.532 * P.CAR0)/P.N; P.B0 = 2e11;
 end
 
 
