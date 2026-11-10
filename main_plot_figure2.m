@@ -4,103 +4,188 @@
 
 clear; close all; clc;
 
-%% Global LaTeX interpreters (axes/legend/text)
-set(groot,'defaultTextInterpreter','latex');
-set(groot,'defaultAxesTickLabelInterpreter','latex');
-set(groot,'defaultLegendInterpreter','latex');
+%% Parameters (dimensional)
+p.K     = 1e12;                 % cells
+p.H     = 0.7*p.K;              % B_{1/2}, cells: enlarged for visibility
+p.k1    = 0.05;                 % day^-1: illustrative stable regime
+p.k2    = 4e-10;                % cell^-1 day^-1
+p.k3    = 5/p.K;                % cell^-1 day^-1: k3*K = 5 day^-1
+p.k4    = 0.1;                  % day^-1
+p.gamma = 0.3;                  % day^-1
+p.delta = 0.2;                  % day^-1
+p.N     = 6;
+eps_max = 1.0;                  % day^-1
 
-%% Parameters (chosen to visibly see the branches, not biologically representative)
-b_half = 0.7;
-k3     = 5.0;  
-eps_max  = 1.0;
+eps_fold = p.k3*p.H/(3 + 2*sqrt(2));
+B_fold   = p.H*(sqrt(2) - 1);
+assert(p.H < p.K && eps_max > eps_fold);
 
-%% Fold location: epsilon* = (b_{1/2} k3) / (3 + 2 sqrt(2))
-eps_fold = (b_half*k3) / (3 + 2*sqrt(2));
+%% Equilibrium branches: refine near both ends, excluding the fold itself
+fraction = unique([logspace(-6,-2,251), linspace(0.01,0.99,5001), ...
+                   1-logspace(-10,-2,251)]);
+eps_branch = eps_fold*fraction;
+n = numel(eps_branch);
+B_minus = zeros(1,n); B_plus = zeros(1,n);
+lambda_minus = zeros(1,n); lambda_plus = zeros(1,n);
 
-%% Build epsilon grids
-eps_all = linspace(0, eps_max, 1500);
+for j = 1:n
+    [xm,Jm] = coexistence(eps_branch(j),-1,p);
+    [xp,Jp] = coexistence(eps_branch(j),+1,p);
+    B_minus(j) = xm(1);
+    B_plus(j)  = xp(1);
+    lambda_minus(j) = max(real(eig(Jm)));
+    lambda_plus(j)  = max(real(eig(Jp)));
+end
 
-%   For bifurcating branches: only defined for eps in [0, eps_fold]
-%   Add strong refinement near eps_fold to avoid "blank space".
-Ncoarse = 1200;
-Nref    = 2500;
-eps_branch_coarse = linspace(0, eps_fold, Ncoarse);
+% Stop rather than mislabel the branches if the parameters are changed.
+assert(all(lambda_minus < 0), ...
+    'The lower branch is not stable over the whole sampled interval.');
+assert(all(lambda_plus > 0), ...
+    'The upper branch is not unstable over the whole sampled interval.');
 
-% cluster points extremely close to the fold from the left:
-delta = eps_fold * logspace(-10, -2, Nref);
-eps_branch_refined = eps_fold - delta;
-eps_branch_refined(eps_branch_refined < 0) = [];
+% The fold is nonhyperbolic: one zero eigenvalue, all others negative.
+[~,Jfold] = coexistence(eps_fold,-1,p);
+fold_eigenvalues = eig(Jfold);
+[~,izero] = min(abs(fold_eigenvalues));
+other_eigenvalues = fold_eigenvalues;
+other_eigenvalues(izero) = [];
+assert(abs(fold_eigenvalues(izero)) < 1e-9);
+assert(all(real(other_eigenvalues) < 0));
 
-% include the fold point exactly
-eps_branch = unique([eps_branch_coarse, eps_branch_refined, eps_fold]);
-eps_branch = sort(eps_branch);
+%% Plot: raw B values, so no division by B_{1/2} and no broken axis
+blue = [0 0.2 0.6];
+red  = [0.75 0 0];
+fig = figure('Color','w','Units','inches','Position',[1 1 5.3 4.9]);
+ax = axes(fig,'Position',[0.20 0.17 0.75 0.72]);
+ax.Toolbar.Visible = 'off';
+disableDefaultInteractivity(ax);
+hold(ax,'on');
 
-%% Compute b*_±
-D = (b_half*k3 - eps_branch).^2 - 4*b_half*k3.*eps_branch;  % discriminant
-D(D < 0 & D > -1e-14) = 0;
+hStable = plot(ax,[0 eps_max],[p.K p.K],'-', ...
+    'Color',blue,'LineWidth',2);
+plot(ax,[eps_branch eps_fold],[B_minus B_fold],'-', ...
+    'Color',blue,'LineWidth',2);
+hUnstable = plot(ax,[0 eps_max],[0 0],'-', ...
+    'Color',red,'LineWidth',2);
+plot(ax,[eps_branch eps_fold],[B_plus B_fold],'-', ...
+    'Color',red,'LineWidth',2);
 
-b_plus  = ((b_half*k3 - eps_branch) + sqrt(D)) ./ (2*k3);  % unstable (red)
-b_minus = ((b_half*k3 - eps_branch) - sqrt(D)) ./ (2*k3);  % stable   (blue)
+plot(ax,[eps_fold eps_fold],[0 B_fold],'k:','LineWidth',2);
+plot(ax,eps_fold,B_fold,'o','MarkerSize',6, ...
+    'MarkerFaceColor','w','MarkerEdgeColor','k','LineWidth',1.1);
 
-%% Constant steady states
-b0 = zeros(size(eps_all));  
-b1 = ones(size(eps_all));
-
-%% Plot
-figure('Color','w'); hold on;
-
-% Stable (dark blue)
-darkBlue = [0 0.2 0.6];
-hStable1 = plot(eps_all, b1, '-', 'Color', darkBlue, 'LineWidth', 2);
-hStable2 = plot(eps_branch, b_minus, '-', 'Color', darkBlue, 'LineWidth', 2);
-
-% Unstable (dark red)
-darkRed = [.75 0 0];
-hUnst1 = plot(eps_all, b0, '-', 'Color', darkRed, 'LineWidth', 2);
-hUnst2 = plot(eps_branch, b_plus, '-', 'Color', darkRed, 'LineWidth', 2);
-% Fold marker (vertical dashed line)
-plot([eps_fold eps_fold], [0, max(b_plus)*1.05], 'k--', 'LineWidth', 1.2);
-
-%% Axes formatting
-xlim([0 1]);
-ylim([-0.05 1.15]);
-
-xticks([0 1]);
-yticks([0 1]);
-yticklabels({'$0$' ,'$K$'});
-
-xlabel('$\epsilon$', 'FontSize', 18);
-ylabel('$B$', 'FontSize', 22, 'Rotation', 0);
-ax = gca;
-ax.YLabel.HorizontalAlignment = 'right';
-ax.YLabel.VerticalAlignment   = 'middle';
-
-ax.FontSize  = 14;
+xlim(ax,[0 eps_max]);
+ylim(ax,[-0.05 1.25]*p.K);
+xticks(ax,[0 eps_fold eps_max]);
+xticklabels(ax,{'$0$','','$1$'});
+% Separate text allows a larger fold label without enlarging every tick.
+text(ax,eps_fold/eps_max,-0.037,'$\epsilon_{\mathrm{f}}$', ...
+    'Units','normalized','Interpreter','latex','FontSize',17, ...
+    'HorizontalAlignment','center','VerticalAlignment','top', ...
+    'Clipping','off');
+yticks(ax,[0 p.H p.K]);
+yticklabels(ax,{'$0$','$B_{1/2}$','$K$'});
+ax.YAxis.Exponent = 0;
+ax.TickLabelInterpreter = 'latex';
+ax.FontSize = 13;
 ax.LineWidth = 1;
-ax.Box       = 'on';
-ax.TickDir   = 'out';  
-ax.TickLength = [0.02 0.02];
+ax.Box = 'on';
+ax.TickDir = 'out';
+ax.TickLength = [0.018 0.018];
+xlabel(ax,'Memory CAR T-cell death rate, $\epsilon$ (day$^{-1}$)', ...
+    'Interpreter','latex','FontSize',13);
+ylabel(ax,'Equilibrium blast burden, $B^*$', ...
+    'Interpreter','latex','FontSize',14,'Rotation',90);
 
-%% Legend 
-lg = legend([hStable1, hUnst1], {'Stable','Unstable'}, 'Location','north', ...
-    'Orientation','horizontal', 'Box','on');
-lg.Box = 'on';
+legend(ax,[hStable hUnstable],{'Stable','Unstable'}, ...
+    'Interpreter','latex','Location','northoutside', ...
+    'Orientation','horizontal','Box','off','FontSize',13);
+text(ax,0.93,1.025*p.K,'$B_1^*$','Interpreter','latex', ...
+    'FontSize',14,'VerticalAlignment','bottom');
+text(ax,0.93,0.025*p.K,'$B_0^*$','Interpreter','latex', ...
+    'FontSize',14,'VerticalAlignment','bottom');
+[~,jlabel] = min(abs(eps_branch-0.48*eps_fold));
+text(ax,eps_branch(jlabel),B_plus(jlabel)+0.025*p.K, ...
+    '$B_+^*$','Interpreter','latex','FontSize',14,'VerticalAlignment','bottom');
+text(ax,eps_branch(jlabel),B_minus(jlabel)+0.045*p.K, ...
+    '$B_-^*$','Interpreter','latex','FontSize',14,'VerticalAlignment','bottom');
+hold(ax,'off');
 
-%% Annotations
-text(0.92, 1.05, '$B_1^\ast$', 'FontSize', 14);
-text(0.92, 0.05, '$B_0^\ast$', 'FontSize', 14);
+%% Save the actual MATLAB output and the numerical stability check
+outdir = fileparts(mfilename('fullpath'));
+if isempty(outdir), outdir = pwd; end
+drawnow;
+exportgraphics(fig,fullfile(outdir,'Figure2_large_Bhalf.pdf'), ...
+    'ContentType','vector','BackgroundColor','white','Padding',12);
+exportgraphics(fig,fullfile(outdir,'Figure2_large_Bhalf.png'), ...
+    'Resolution',300,'BackgroundColor','white','Padding',12);
+savefig(fig,fullfile(outdir,'Figure2_large_Bhalf.fig'));
 
-text(-0.08, b_half, '$B_{1/2}$', 'FontSize', 14);
+T = table(eps_branch(:),B_minus(:),B_plus(:), ...
+          lambda_minus(:),lambda_plus(:),'VariableNames', ...
+          {'epsilon_per_day','B_minus_cells','B_plus_cells', ...
+           'max_real_lambda_minus','max_real_lambda_plus'});
+writetable(T,fullfile(outdir,'figure2_stability_data.csv'));
+save(fullfile(outdir,'figure2_parameters.mat'), ...
+    'p','eps_fold','B_fold','fold_eigenvalues');
 
-% Put b*_{+} and b*_{-} labels near the branches
-eps_lab = 0.55*eps_fold;
-[~, idx] = min(abs(eps_branch - eps_lab));
-text(eps_branch(idx)+0.02, b_plus(idx)+0.03,  '$B_{+}^\ast$', 'FontSize', 14);
-text(eps_branch(idx)+0.02, b_minus(idx)+0.07, '$B_{-}^\ast$', 'FontSize', 14);
+report = sprintf(['MATLAB %s\n' ...
+    'k1 = %.3g day^-1\nB_half = %.3g cells; K = %.3g cells\n' ...
+    'k3 = %.6g cell^-1 day^-1\n' ...
+    'Fold: epsilon = %.12g day^-1; B = %.12g cells\n' ...
+    'Checked %d epsilon values strictly between zero and the fold.\n' ...
+    'Lower branch: stable at %d/%d sampled values.\n' ...
+    'Upper branch: unstable at %d/%d sampled values.\n' ...
+    'Fold: one zero eigenvalue; all other eigenvalues have negative real parts.\n'], ...
+    version,p.k1,p.H,p.K,p.k3,eps_fold,B_fold,n, ...
+    sum(lambda_minus<0),n,sum(lambda_plus>0),n);
+fprintf('%s',report);
+fid = fopen(fullfile(outdir,'stability_check.txt'),'w');
+assert(fid>=0,'Could not write the stability report.');
+fprintf(fid,'%s',report);
+fclose(fid);
 
-% Fold formula under dashed line
-txtFold = '$\epsilon=\frac{B_{1/2}k_3}{3+2\sqrt{2}}$';
-text(eps_fold-0.1, -0.12, txtFold, 'FontSize', 10);
+%% Full coexistence state and Jacobian
+function [x,Jscaled] = coexistence(epsilon,branch,p)
+    z = p.k3*p.H;
+    eps_fold = z/(3+2*sqrt(2));
+    D = max(0,(z-epsilon)^2-4*z*epsilon);
+    if epsilon == eps_fold
+        B = p.H*(sqrt(2)-1);
+    elseif branch < 0
+        % Equivalent quadratic root, avoiding cancellation near epsilon=0.
+        B = 2*p.H*epsilon/(z-epsilon+sqrt(D));
+    else
+        B = (z-epsilon+sqrt(D))/(2*p.k3);
+    end
+    N = p.N;
+    Q = 2^(N-1)-1+(p.gamma/p.delta)*2^(N-1);
+    E1 = (p.k1/p.k2)*(1-B/p.K)/Q;
+    E = [E1*2.^(0:N-2), (p.gamma/p.delta)*2^(N-1)*E1];
+    A = p.gamma*E1*(p.H+B)/(2*p.k4*B);
+    M = p.k4*A/(p.k3*B);
+    x = [B;E(:);A;M];
 
-hold off;
-
+    % State ordering: B, E1,...,EN, A, M.
+    ia = N+2; im = N+3;
+    J = zeros(N+3);
+    J(1,1) = p.k1*(1-2*B/p.K)-p.k2*sum(E);
+    J(1,2:N+1) = -p.k2*B;
+    J(2,1) = 2*p.k4*A*p.H/(p.H+B)^2;
+    J(2,2) = -p.gamma;
+    J(2,ia) = 2*p.k4*B/(p.H+B);
+    for i = 3:N
+        J(i,i-1) = 2*p.gamma;
+        J(i,i) = -p.gamma;
+    end
+    J(N+1,N) = 2*p.gamma;
+    J(N+1,N+1) = -p.delta;
+    J(ia,1) = p.k3*M;
+    J(ia,ia) = -p.k4;
+    J(ia,im) = p.k3*B;
+    J(im,1) = -p.k3*M-2*p.k4*A*p.H/(p.H+B)^2;
+    J(im,ia) = 2*p.k4*p.H/(p.H+B);
+    J(im,im) = -(p.k3*B+epsilon);
+    % Diagonal similarity transformation preserves all eigenvalues.
+    Jscaled = (J.*x.')./x;
+end
