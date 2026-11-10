@@ -124,7 +124,7 @@ for j = 1:numel(lamVec)
     IC = IC0;
     CAR0 = CAR0_base * lam;
     % keep partition fixed
-    IC.M0 = 0.468 * CAR0;
+    IC.M0 = IC0.M0;
     IC.E0 = (0.532 * CAR0 / P.N) * ones(P.N,1);
     Y_CAR0(j) = AUC(P, IC);
 end
